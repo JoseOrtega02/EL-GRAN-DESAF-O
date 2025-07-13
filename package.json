@@ -1,0 +1,25 @@
+{
+  "name": "playwright-scraper",
+  "version": "1.0.0",
+  "description": "Web scraper con Playwright y TypeScript",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "npx playwright test"
+  },
+  "author": "José Ortega",
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.45.0",
+    "@types/node": "^24.0.13",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@types/pdf-parse": "^1.1.5",
+    "pdf-parse": "^1.1.1",
+    "pdf2json": "^3.1.6"
+  }
+}
