@@ -26,7 +26,7 @@ function extraerCodigoAcceso(texto: string): string | null {
   return match ? match[1] : null;
 }
 
-async function ingresarCodigo(page: Page, codigo: string,input: Locator,i:number): Promise<void> {
+export async function ingresarCodigo(page: Page, codigo: string,input: Locator,i:number): Promise<void> {
   console.log(`🔓 Ingresando código: ${codigo}`);
   await input.fill(codigo);
   const botonDesbloquear =  page.locator('button:has-text("Desbloquear")').nth(i);
@@ -35,8 +35,8 @@ async function ingresarCodigo(page: Page, codigo: string,input: Locator,i:number
   return
 }
 
-async function searchButton(page: Page) {
-  await page.waitForSelector('button:has-text("Descargar PDF")', { timeout: 10000 });
+export async function searchButton(page: Page) {
+  //await page.waitForSelector('button:has-text("Descargar PDF")', { timeout: 3000 });
 
   const botones = await page.locator('button').all();
   const textosBotones = await Promise.all(botones.map(boton => boton.textContent()));
@@ -51,13 +51,12 @@ async function searchButton(page: Page) {
   return botonesDescarga;
 }
 
-async function downloadPdf(page: Page, boton: Locator) {
+export async function downloadPdf(page: Page, boton: Locator) {
   await page.waitForTimeout(2000); // Esperar 2 segundos entre acciones
 
   const [download] = await Promise.all([
     page.waitForEvent('download',{timeout: 10000}), // Esperar evento de descarga
     boton.click(),
-    page.waitForEvent('download', { timeout: 10000 })
   ]);
 
   const rawFilename = download.suggestedFilename();
@@ -117,28 +116,42 @@ export async function danzaSiglos(page: Page) {
     console.warn('⚠️ No se encontró ningún botón de descarga.');
     return;
   }
-
+  let tiempo_espera = 3;
+  await page.waitForTimeout(tiempo_espera * 1000);
   const inputsCodigo = await page.locator('input[placeholder="Ingresá el código"]').all();
   if (inputsCodigo.length < 2) {
     console.warn('⚠️ No se encontraron suficientes inputs para ingresar códigos.');
     return;
   }
-
+  let codigo:string | null = null;
   try {
     for (let i = 0; i < botonesDescarga.length; i++) {
-      const path = await downloadPdf(page, botonesDescarga[i]);
-      await page.waitForTimeout(3000);
+  const path = await downloadPdf(page, botonesDescarga[i]);
+  await page.waitForTimeout(3000);
 
-      const codigo = await readPdf(path);
-      inputsCodigo?.map(async (input, index) => {
-        if (codigo) {
-          await ingresarCodigo(page, codigo, input, index);
-        }
-      });
+   codigo = await readPdf(path);
 
-      // Actualiza los botones para el siguiente ciclo
-      botonesDescarga = await searchButton(page);
+  // 🔄 Volver a obtener los inputs actualizados
+  const inputsCodigo = await page.locator('input[placeholder="Ingresá el código"]').all();
+
+  // 💡 Asegurarse de que haya inputs disponibles
+  if (inputsCodigo.length === 0) {
+    console.warn('⚠️ No hay inputs disponibles para ingresar el código.');
+    break;
+  }
+
+  // ✅ Ingresar el código en cada input actual
+  for (let j = 0; j < inputsCodigo.length; j++) {
+    const input = inputsCodigo[j];
+    if (codigo) {
+      await ingresarCodigo(page, codigo, input, j);
+      await page.waitForTimeout(1000);
     }
+  }
+
+  // 🔁 Recalcular los botones por si cambian después de desbloquear
+  botonesDescarga = await searchButton(page);
+}
 
     // Última descarga fuera del bucle
     const nuevosBotones = await searchButton(page);
@@ -151,6 +164,7 @@ export async function danzaSiglos(page: Page) {
 
       const path = await downloadPdf(page, ultimoBoton);
       console.log('✅ Último PDF descargado en:', path);
+      return codigo
     }
 
   } catch (error) {

@@ -1,5 +1,6 @@
 import {chromium, Page} from "playwright"
 import { danzaSiglos } from "./DanzaSiglos/danzaSiglos";
+import { ultimosGuardianes } from "./DanzaSiglos/ultimosGuardianes";
 // Invocación del portal
 const credentials = {
   email: 'monje@sherpa.local',
@@ -46,7 +47,12 @@ try {
     await login(page);
     let tiempo_espera = 3
     await page.waitForTimeout(tiempo_espera * 1000);
-    await danzaSiglos(page);
+    const codigo = await danzaSiglos(page);
+    if(codigo){
+        await ultimosGuardianes(page,codigo)
+    }
+    await page.close()
+    console.log("script finalizado")
   } catch (error) {
     console.error('❌ Error durante la aventura:', error);
   }
