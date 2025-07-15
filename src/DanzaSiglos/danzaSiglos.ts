@@ -1,11 +1,27 @@
-
 import { Locator, Page } from 'playwright';
 import fs from 'fs';
 import path from 'path';
-import pdfParse from 'pdf-parse';
+
+function convertCrLfToLf(buffer: Buffer): Buffer {
+  const crlf = Buffer.from([0x0d, 0x0a]);
+  const lf = Buffer.from([0x0a]);
+  const parts: Buffer[] = [];
+  let lastIndex = 0;
+  let index = buffer.indexOf(crlf);
+
+  while (index !== -1) {
+    parts.push(buffer.slice(lastIndex, index));
+    parts.push(lf);
+    lastIndex = index + crlf.length;
+    index = buffer.indexOf(crlf, lastIndex);
+  }
+  parts.push(buffer.slice(lastIndex));
+  return Buffer.concat(parts);
+}
 
 function extraerCodigoAcceso(texto: string): string | null {
-  const regex = /\b[A-Z]{4,}[0-9]{2,}\b/;
+  // Busca el patrón "Código de acceso: <CÓDIGO>"
+  const regex = /Código de acceso:\s*([A-Z]{4,}[0-9]{2,})/;
   const match = texto.match(regex);
   return match ? match[1] : null;
 }
@@ -52,7 +68,8 @@ async function downloadPdf(page: Page, boton: Locator) {
     chunks.push(chunk);
   }
 
-  const buffer = Buffer.concat(chunks);
+  let buffer = Buffer.concat(chunks);
+  buffer = convertCrLfToLf(buffer);
 
   // ✅ Validar encabezado
   const fileHeader = buffer.slice(0, 5).toString();
@@ -62,19 +79,11 @@ async function downloadPdf(page: Page, boton: Locator) {
     fs.writeFileSync(fallbackPath, buffer);
     throw new Error(`❌ Contenido no válido. Guardado en: ${fallbackPath}`);
   }
-  // 📖 Extraer texto del PDF con manejo de errores
-  try {
-    const parsed = await pdfParse(buffer);
-    console.log('Texto del PDF:\n', parsed.text);
-  } catch (error) {
-    console.error('❌ Error al parsear el PDF:', error);
-    fs.writeFileSync(savePath.replace(/\.pdf$/, '.corrupt.pdf'), buffer);
-    throw new Error('❌ PDF corrupto, guardado para depurar');
-  }
 
   // 💾 Guardar PDF (después del chequeo)
   fs.writeFileSync(savePath, buffer);
-  await page.waitForTimeout(1000);
+    let tiempo_espera = 3;
+  await page.waitForTimeout(tiempo_espera * 1000);
 
   return savePath;
 }
@@ -90,10 +99,8 @@ async function readPdf(path: string): Promise<string | null> {
       return null;
     }
 
-    const data = await pdfParse(dataBuffer);
-    console.log(`📄 Páginas: ${data.numpages}`);
-    console.log(data.text);
-    const codigoAcceso = extraerCodigoAcceso(data.text);
+    const textContent = dataBuffer.toString('utf-8');
+    const codigoAcceso = extraerCodigoAcceso(textContent);
     return codigoAcceso
   } catch (error) {
     console.error('❌ Error al leer el PDF desde disco:', error);
@@ -113,7 +120,9 @@ export async function danzaSiglos(page: Page) {
 
   try {
     const path = await downloadPdf(page, boton);
-    await page.waitForTimeout(2000);
+      let tiempo_espera = 3;
+
+    await page.waitForTimeout(tiempo_espera * 1000);
     const codigo = await readPdf(path);
     console.log(`🔑 Código extraído: ${codigo}`);
   } catch (error) {
