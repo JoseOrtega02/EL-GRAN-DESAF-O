@@ -33,7 +33,8 @@ async function login(page: Page): Promise<void> {
   await page.click('button[type="submit"]');
 
   await page.waitForURL('https://pruebatecnica-sherpa-production.up.railway.app/portal');
-  await page.waitForTimeout(2000);
+  let tiempo_espera = 3
+  await page.waitForTimeout(tiempo_espera * 1000);
 }
 
 
@@ -43,7 +44,8 @@ async function aventura(){
 try {
     const page = await iniciarAventura();
     await login(page);
-    await page.waitForTimeout(2000);
+    let tiempo_espera = 3
+    await page.waitForTimeout(tiempo_espera * 1000);
     await danzaSiglos(page);
   } catch (error) {
     console.error('❌ Error durante la aventura:', error);
