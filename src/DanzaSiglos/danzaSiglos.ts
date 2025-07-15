@@ -2,6 +2,12 @@ import { Locator, Page } from 'playwright';
 import fs from 'fs';
 import path from 'path';
 
+const TIEMPO_ESPERA = 3000;
+
+function esperar(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function convertCrLfToLf(buffer: Buffer): Buffer {
   const crlf = Buffer.from([0x0d, 0x0a]);
   const lf = Buffer.from([0x0a]);
@@ -15,47 +21,41 @@ function convertCrLfToLf(buffer: Buffer): Buffer {
     lastIndex = index + crlf.length;
     index = buffer.indexOf(crlf, lastIndex);
   }
+
   parts.push(buffer.slice(lastIndex));
   return Buffer.concat(parts);
 }
 
 function extraerCodigoAcceso(texto: string): string | null {
-  // Busca el patrón "Código de acceso: <CÓDIGO>"
   const regex = /Código de acceso:\s*([A-Z]{4,}[0-9]{2,})/;
   const match = texto.match(regex);
-  return match ? match[1] : null;
+  return match?.[1] ?? null;
 }
 
-export async function ingresarCodigo(page: Page, codigo: string,input: Locator,i:number): Promise<void> {
+export async function ingresarCodigo(page: Page, codigo: string, input: Locator, index: number): Promise<void> {
   console.log(`🔓 Ingresando código: ${codigo}`);
   await input.fill(codigo);
-  const botonDesbloquear =  page.locator('button:has-text("Desbloquear")').nth(i);
+  const botonDesbloquear = page.locator('button:has-text("Desbloquear")').nth(index);
   await botonDesbloquear.click();
-  await page.waitForTimeout(1000);
-  return
+  await esperar(1000);
 }
 
-export async function searchButton(page: Page) {
-  //await page.waitForSelector('button:has-text("Descargar PDF")', { timeout: 3000 });
-
+export async function searchButton(page: Page): Promise<Locator[]> {
   const botones = await page.locator('button').all();
-  const textosBotones = await Promise.all(botones.map(boton => boton.textContent()));
+  const textos = await Promise.all(botones.map(b => b.textContent()));
 
-  const botonesDescarga = botones.filter((boton, i) => {
-    const text = textosBotones[i];
-    console.log(`🔍 Verificando botón: ${text}`);
-    return text?.includes("Descargar PDF") || text?.includes("Desbloquear");
+  return botones.filter((_, i) => {
+    const texto = textos[i];
+    console.log(`🔍 Verificando botón: ${texto}`);
+    return texto?.includes("Descargar PDF") || texto?.includes("Desbloquear");
   });
-
-  console.log(`📌 Se encontraron ${botonesDescarga.length} botones de descarga`);
-  return botonesDescarga;
 }
 
-export async function downloadPdf(page: Page, boton: Locator) {
-  await page.waitForTimeout(2000); // Esperar 2 segundos entre acciones
+export async function downloadPdf(page: Page, boton: Locator): Promise<string> {
+  await esperar(2000);
 
   const [download] = await Promise.all([
-    page.waitForEvent('download',{timeout: 10000}), // Esperar evento de descarga
+    page.waitForEvent('download', { timeout: 10000 }),
     boton.click(),
   ]);
 
@@ -65,111 +65,87 @@ export async function downloadPdf(page: Page, boton: Locator) {
 
   const stream = await download.createReadStream();
   const chunks = [];
+
   for await (const chunk of stream) {
     chunks.push(chunk);
   }
 
-  let buffer = Buffer.concat(chunks);
-  buffer = convertCrLfToLf(buffer);
+  let buffer = convertCrLfToLf(Buffer.concat(chunks));
 
-  // ✅ Validar encabezado
   const fileHeader = buffer.slice(0, 5).toString();
   if (!fileHeader.startsWith('%PDF-')) {
-    console.warn(`⚠️ Descarga no es PDF válido. Encabezado: ${fileHeader}`);
+    console.warn(`⚠️ Archivo no válido. Encabezado: ${fileHeader}`);
     const fallbackPath = savePath.replace(/\.pdf$/, '.html');
     fs.writeFileSync(fallbackPath, buffer);
-    throw new Error(`❌ Contenido no válido. Guardado en: ${fallbackPath}`);
+    throw new Error(`❌ Contenido inválido. Guardado como: ${fallbackPath}`);
   }
 
-  // 💾 Guardar PDF (después del chequeo)
   fs.writeFileSync(savePath, buffer);
-    let tiempo_espera = 3;
-  await page.waitForTimeout(tiempo_espera * 1000);
-
+  await esperar(TIEMPO_ESPERA);
   return savePath;
 }
 
-async function readPdf(path: string): Promise<string | null> {
+async function readPdf(filePath: string): Promise<string | null> {
   try {
-    const dataBuffer = fs.readFileSync(path);
-    const fileHeader = dataBuffer.slice(0, 5).toString();
-    console.log(`Encabezado del archivo: ${fileHeader}`);
+    const buffer = fs.readFileSync(filePath);
+    const header = buffer.slice(0, 5).toString();
 
-    if (!fileHeader.startsWith('%PDF-')) {
-      console.error('❌ El archivo no es un PDF válido.');
+    if (!header.startsWith('%PDF-')) {
+      console.error('❌ Archivo no es un PDF válido.');
       return null;
     }
 
-    const textContent = dataBuffer.toString('utf-8');
-    const codigoAcceso = extraerCodigoAcceso(textContent);
-    return codigoAcceso
+    const text = buffer.toString('utf-8');
+    return extraerCodigoAcceso(text);
   } catch (error) {
-    console.error('❌ Error al leer el PDF desde disco:', error);
+    console.error('❌ Error leyendo el PDF:', error);
     return null;
   }
 }
 
-export async function danzaSiglos(page: Page) {
-  let botonesDescarga = await searchButton(page);
+async function descargarYLeerCodigo(page: Page, boton: Locator): Promise<string | null> {
+  const path = await downloadPdf(page, boton);
+  return readPdf(path);
+}
 
-  if (botonesDescarga.length === 0) {
+export async function danzaSiglos(page: Page) {
+  let codigo:string | null = null
+  let botones = await searchButton(page);
+
+  if (botones.length === 0) {
     console.warn('⚠️ No se encontró ningún botón de descarga.');
     return;
   }
-  let tiempo_espera = 3;
-  await page.waitForTimeout(tiempo_espera * 1000);
-  const inputsCodigo = await page.locator('input[placeholder="Ingresá el código"]').all();
-  if (inputsCodigo.length < 2) {
-    console.warn('⚠️ No se encontraron suficientes inputs para ingresar códigos.');
-    return;
-  }
-  let codigo:string | null = null;
-  try {
-    for (let i = 0; i < botonesDescarga.length; i++) {
-  const path = await downloadPdf(page, botonesDescarga[i]);
-  await page.waitForTimeout(3000);
 
-   codigo = await readPdf(path);
+  await esperar(TIEMPO_ESPERA);
 
-  // 🔄 Volver a obtener los inputs actualizados
-  const inputsCodigo = await page.locator('input[placeholder="Ingresá el código"]').all();
+  for (let i = 0; i < botones.length; i++) {
+     codigo = await descargarYLeerCodigo(page, botones[i]);
 
-  // 💡 Asegurarse de que haya inputs disponibles
-  if (inputsCodigo.length === 0) {
-    console.warn('⚠️ No hay inputs disponibles para ingresar el código.');
-    break;
-  }
-
-  // ✅ Ingresar el código en cada input actual
-  for (let j = 0; j < inputsCodigo.length; j++) {
-    const input = inputsCodigo[j];
-    if (codigo) {
-      await ingresarCodigo(page, codigo, input, j);
-      await page.waitForTimeout(1000);
-    }
-  }
-
-  // 🔁 Recalcular los botones por si cambian después de desbloquear
-  botonesDescarga = await searchButton(page);
-}
-
-    // Última descarga fuera del bucle
-    const nuevosBotones = await searchButton(page);
-    if (nuevosBotones.length > 0) {
-      const ultimoBoton = nuevosBotones[0];
-
-      // Esperar que esté visible y habilitado
-      await ultimoBoton.waitFor({ state: 'visible' });
-      await ultimoBoton.click();
-
-      const path = await downloadPdf(page, ultimoBoton);
-      console.log('✅ Último PDF descargado en:', path);
-      return codigo
+    const inputs = await page.locator('input[placeholder="Ingresá el código"]').all();
+    if (inputs.length === 0) {
+      console.warn('⚠️ No hay inputs disponibles para ingresar el código.');
+      break;
     }
 
-  } catch (error) {
-    console.error('❌ Error en proceso de descarga o lectura:', error);
+    for (let j = 0; j < inputs.length; j++) {
+      if (codigo) {
+        await ingresarCodigo(page, codigo, inputs[j], j);
+        await esperar(1000);
+      }
+    }
+
+    botones = await searchButton(page);
   }
+
+  const nuevosBotones = await searchButton(page);
+  if (nuevosBotones.length > 0) {
+    const ultimo = nuevosBotones[0];
+    await ultimo.waitFor({ state: 'visible' });
+    await ultimo.click();
+
+    const finalPath = await downloadPdf(page, ultimo);
+    console.log('✅ Último PDF descargado en:', finalPath);
+  }
+  return codigo
 }
-
-
