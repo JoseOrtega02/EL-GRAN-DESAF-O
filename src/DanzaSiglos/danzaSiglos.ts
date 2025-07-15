@@ -26,11 +26,13 @@ function extraerCodigoAcceso(texto: string): string | null {
   return match ? match[1] : null;
 }
 
-async function ingresarCodigo(page: Page, codigo: string): Promise<void> {
+async function ingresarCodigo(page: Page, codigo: string,input: Locator,i:number): Promise<void> {
   console.log(`🔓 Ingresando código: ${codigo}`);
-  await page.fill('input[placeholder="Ingresá el código"]', codigo);
-  await page.click('button:has-text("Desbloquear")');
+  await input.fill(codigo);
+  const botonDesbloquear =  page.locator('button:has-text("Desbloquear")').nth(i);
+  await botonDesbloquear.click();
   await page.waitForTimeout(1000);
+  return
 }
 
 async function searchButton(page: Page) {
@@ -109,24 +111,51 @@ async function readPdf(path: string): Promise<string | null> {
 }
 
 export async function danzaSiglos(page: Page) {
-  const botonesDescarga = await searchButton(page);
+  let botonesDescarga = await searchButton(page);
 
   if (botonesDescarga.length === 0) {
     console.warn('⚠️ No se encontró ningún botón de descarga.');
     return;
   }
 
-  const boton = botonesDescarga[0];
+  const inputsCodigo = await page.locator('input[placeholder="Ingresá el código"]').all();
+  if (inputsCodigo.length < 2) {
+    console.warn('⚠️ No se encontraron suficientes inputs para ingresar códigos.');
+    return;
+  }
 
   try {
-    const path = await downloadPdf(page, boton);
-      let tiempo_espera = 3;
+    for (let i = 0; i < botonesDescarga.length; i++) {
+      const path = await downloadPdf(page, botonesDescarga[i]);
+      await page.waitForTimeout(3000);
 
-    await page.waitForTimeout(tiempo_espera * 1000);
-    const codigo = await readPdf(path);
-    console.log(`🔑 Código extraído: ${codigo}`);
+      const codigo = await readPdf(path);
+      inputsCodigo?.map(async (input, index) => {
+        if (codigo) {
+          await ingresarCodigo(page, codigo, input, index);
+        }
+      });
+
+      // Actualiza los botones para el siguiente ciclo
+      botonesDescarga = await searchButton(page);
+    }
+
+    // Última descarga fuera del bucle
+    const nuevosBotones = await searchButton(page);
+    if (nuevosBotones.length > 0) {
+      const ultimoBoton = nuevosBotones[0];
+
+      // Esperar que esté visible y habilitado
+      await ultimoBoton.waitFor({ state: 'visible' });
+      await ultimoBoton.click();
+
+      const path = await downloadPdf(page, ultimoBoton);
+      console.log('✅ Último PDF descargado en:', path);
+    }
+
   } catch (error) {
     console.error('❌ Error en proceso de descarga o lectura:', error);
   }
 }
+
 
